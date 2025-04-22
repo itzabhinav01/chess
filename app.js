@@ -4,6 +4,7 @@ const http= require('http');
 const {Chess} = require('chess.js');
 const path = require('path');
 const { title } = require('process');
+const { console } = require('inspector');
 
 const app = express();
 
@@ -21,6 +22,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get("/", (req, res)=>{
     res.render("index", {title: "Chess Game"});
 });
+
+io.on("connection", (uniquesocket)=>{
+    console.log("New user connected: " + uniquesocket.id);
+    // uniquesocket.on("churan",()=>{
+    //     // console.log("churan event received from client");
+    //     io.emit("churan paapdi");
+    // })
+    
+    
+})
 
 server.listen(3000,()=>{
     console.log("Server is running on port 3000");
