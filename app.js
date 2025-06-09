@@ -34,11 +34,11 @@ io.on("connection", (uniquesocket)=>{
     // })
     if(!players.white){
         players.white=uniquesocket.id;
-        uniquesocket.emit("playerColor", "w");// ye sirf us specific bande ko btayega
+        uniquesocket.emit("playerRole", "w");// ye sirf us specific bande ko btayega
     }
     else if(!players.black){
         players.black=uniquesocket.id;
-        uniquesocket.emit("playerColor", "b");
+        uniquesocket.emit("playerRole", "b");
     }
     else{
         uniquesocket.emit("spectator", "You are spectating the game");
