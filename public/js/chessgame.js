@@ -1,20 +1,21 @@
-// const { render } = require("ejs");
-
 const socket = io();
 const chess = new Chess();
 const boardElement = document.querySelector(".chessboard");
+const roleDisplay = document.getElementById("roleDisplay");
+const restartBtn = document.getElementById("restartBtn");
 
 let draggedPiece = null;
 let sourceSquare = null;
-let playerRole = null; // 🟢 Consistent name
+let playerRole = null;
+let gameIsOver = false;
 
+// Render the board based on current chess state
 const renderBoard = () => {
   const board = chess.board();
   boardElement.innerHTML = "";
 
   board.forEach((row, rowIndex) => {
     row.forEach((square, squareIndex) => {
-        // console.log(square);
       const squareElement = document.createElement("div");
       squareElement.classList.add(
         "square",
@@ -26,8 +27,11 @@ const renderBoard = () => {
 
       if (square) {
         const pieceElement = document.createElement("div");
-        pieceElement.classList.add("piece", square.color === "w" ? "white" : "black");
-        pieceElement.innerText = getPieceUnicode(square); // 🟢 Fixed typo
+        pieceElement.classList.add(
+          "piece",
+          square.color === "w" ? "white" : "black"
+        );
+        pieceElement.innerText = getPieceUnicode(square);
 
         pieceElement.draggable = playerRole === square.color;
 
@@ -39,12 +43,12 @@ const renderBoard = () => {
           }
         });
 
-        pieceElement.addEventListener("dragend", (e) => {
+        pieceElement.addEventListener("dragend", () => {
           draggedPiece = null;
           sourceSquare = null;
         });
 
-        squareElement.appendChild(pieceElement); // 🟢 Fixed typo
+        squareElement.appendChild(pieceElement);
       }
 
       squareElement.addEventListener("dragover", (e) => {
@@ -53,7 +57,7 @@ const renderBoard = () => {
 
       squareElement.addEventListener("drop", (e) => {
         e.preventDefault();
-        if (draggedPiece) {
+        if (draggedPiece && !gameIsOver) {
           const targetSquare = {
             row: parseInt(squareElement.dataset.row),
             col: parseInt(squareElement.dataset.col),
@@ -65,72 +69,116 @@ const renderBoard = () => {
       boardElement.appendChild(squareElement);
     });
   });
-  if(playerRole === "b"){
+
+  if (playerRole === "b") {
     boardElement.classList.add("flipped");
-  }
-  else{
+  } else {
     boardElement.classList.remove("flipped");
   }
 };
 
+// Convert internal row/col into chess notation & emit move
 const handleMove = (source, target) => {
-    const move = {
-        from:`${String.fromCharCode(97+source.col)}${8-source.row}`, // Convert to chess notation,
-        to:`${String.fromCharCode(97+target.col)}${8-target.row}` ,
-        promotion: "q" // Always promote to queen for simplicity
-    }
-    socket.emit("move", move); // Emit the move to the server
-    chess.move(move); // Update local chess state
+  if (gameIsOver) return;
 
+  const move = {
+    from: `${String.fromCharCode(97 + source.col)}${8 - source.row}`,
+    to: `${String.fromCharCode(97 + target.col)}${8 - target.row}`,
+    promotion: "q", // Always promote to queen
+  };
+
+  socket.emit("move", move);
+  chess.move(move); // Locally update to reduce flicker
 };
 
+// Convert piece to Unicode symbol
 const getPieceUnicode = (piece) => {
   const unicodePieces = {
-    "wp": "♙", // white pawn
-    "wr": "♖",
-    "wn": "♘",
-    "wb": "♗",
-    "wq": "♕",
-    "wk": "♔",
-    "bp": "♟",
-    "br": "♜",
-    "bn": "♞",
-    "bb": "♝",
-    "bq": "♛",
-    "bk": "♚",
+    wp: "♙",
+    wr: "♖",
+    wn: "♘",
+    wb: "♗",
+    wq: "♕",
+    wk: "♔",
+    bp: "♟",
+    br: "♜",
+    bn: "♞",
+    bb: "♝",
+    bq: "♛",
+    bk: "♚",
   };
 
   const key = piece.color + piece.type;
   return unicodePieces[key] || "";
 };
 
-socket.on("playerRole", function(color){
-    console.log("Received player color:", color); // Confirm!
-    playerRole = color;
-    renderBoard();
+// Role assignment
+socket.on("playerRole", function (color) {
+  playerRole = color;
+  gameIsOver = false;
+  roleDisplay.innerText = color === "w" ? "You are White" : "You are Black";
+  restartBtn.classList.add("hidden");
+  renderBoard();
 });
 
-
-
-socket.on("spectatorRole", function(){
-    playerRole = null; // Spectators cannot move pieces
-    renderBoard();
+// Spectator mode
+socket.on("spectatorRole", function () {
+  playerRole = null;
+  roleDisplay.innerText = "You are a Spectator";
+  renderBoard();
 });
 
-socket.on("boardState", function(fen){
-    chess.load(fen);
-    renderBoard();
-})
+// Board sync from server
+socket.on("boardState", function (fen) {
+  chess.load(fen);
+  renderBoard();
+});
 
-socket.on("move", function(move){
-    chess.move(move);
-    renderBoard();
-})
+// Handle move broadcast
+socket.on("move", function (move) {
+  chess.move(move);
+  renderBoard();
+});
 
+// Game over handler
+socket.on("gameOver", function (data) {
+  gameIsOver = true;
+  let message = "";
+
+  switch (data.result) {
+    case "checkmate":
+      message =
+        playerRole && socket.id === data.winner
+          ? "You won by checkmate!"
+          : "You lost. Checkmate.";
+      break;
+    case "draw":
+      message = "Game ended in a draw.";
+      break;
+    case "stalemate":
+      message = "Stalemate! It's a draw.";
+      break;
+    case "threefold repetition":
+      message = "Draw by threefold repetition.";
+      break;
+    case "insufficient material":
+      message = "Draw due to insufficient material.";
+      break;
+  }
+
+  setTimeout(() => {
+    alert(message);
+  }, 100);
+
+  restartBtn.classList.remove("hidden");
+});
+
+// Restart button click
+restartBtn.addEventListener("click", () => {
+  socket.emit("restartGame");
+  gameIsOver = false;
+  restartBtn.classList.add("hidden");
+});
+
+// Initial render
 renderBoard();
-
-// Example socket event (uncomment if needed)
-// socket.emit("churan");
-// socket.on("churan paapdi", () => {
-//   console.log("churan paapdi event received from server");
-// });

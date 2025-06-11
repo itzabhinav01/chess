@@ -1,99 +1,101 @@
 const express = require('express');
 const socket = require('socket.io');
-const http= require('http');
-const {Chess} = require('chess.js');
+const http = require('http');
+const { Chess } = require('chess.js');
 const path = require('path');
-const { title } = require('process');
-// const { console } = require('inspector');
-
 
 console.log("App.js started!");
 
 const app = express();
-
-const server=http.createServer(app);
-const io= socket(server);
+const server = http.createServer(app);
+const io = socket(server);
 
 const chess = new Chess();
 
-let players = {};
-let currentPlayer = "W";
+let players = {}; // { white: socketId, black: socketId }
+let currentPlayer = "w";
 
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get("/", (req, res)=>{
-    res.render("index", {title: "Chess Game"});
+// Serve main page
+app.get("/", (req, res) => {
+  res.render("index", { title: "Chess Game" });
 });
 
-io.on("connection", (uniquesocket)=>{
-    console.log("New user connected: " + uniquesocket.id);
-    // uniquesocket.on("churan",()=>{
-    //     console.log("churan event received from client");
-    //     io.emit("churan paapdi");// ye sbko kuch na kuch bhej dega frntend ko I mean bcz its backend
-    // })
-    if(!players.white){
-        players.white=uniquesocket.id;
-        uniquesocket.emit("playerRole", "w");// ye sirf us specific bande ko btayega
-        //check
+// Handle socket connections
+io.on("connection", (uniquesocket) => {
+  console.log("New user connected:", uniquesocket.id);
+
+  // Assign player roles
+  if (!players.white) {
+    players.white = uniquesocket.id;
+    uniquesocket.emit("playerRole", "w");
+  } else if (!players.black) {
+    players.black = uniquesocket.id;
+    uniquesocket.emit("playerRole", "b");
+  } else {
+    uniquesocket.emit("spectatorRole", "You are spectating the game");
+  }
+
+  // Restart game handler
+  uniquesocket.on("restartGame", () => {
+    if (uniquesocket.id === players.white || uniquesocket.id === players.black) {
+      chess.reset();
+      io.emit("boardState", chess.fen());
     }
-    else if(!players.black){
-        players.black=uniquesocket.id;
-        uniquesocket.emit("playerRole", "b");
+  });
+
+  // Handle disconnection
+  uniquesocket.on("disconnect", () => {
+    if (uniquesocket.id === players.white) {
+      delete players.white;
+    } else if (uniquesocket.id === players.black) {
+      delete players.black;
     }
-    else{
-        uniquesocket.emit("spectator", "You are spectating the game");
-        // return;
-    }
-    uniquesocket.on("disconnect", ()=>{
-        if(uniquesocket.id == players.white){
-            delete players.white;
-        } 
-        else if(uniquesocket.id == players.black){
-            delete players.black;
+    console.log("User disconnected:", uniquesocket.id);
+  });
+
+  // Handle move event
+  uniquesocket.on("move", (move) => {
+    try {
+      const turn = chess.turn(); // 'w' or 'b'
+      const isWhite = uniquesocket.id === players.white;
+      const isBlack = uniquesocket.id === players.black;
+
+      if ((turn === 'w' && !isWhite) || (turn === 'b' && !isBlack)) return;
+
+      const result = chess.move(move);
+      if (result) {
+        currentPlayer = chess.turn();
+        io.emit("move", move); // Broadcast the move
+        io.emit("boardState", chess.fen()); // Broadcast the FEN state
+
+        // Check game over conditions
+        if (chess.in_checkmate()) {
+          io.emit("gameOver", { result: "checkmate", winner: uniquesocket.id });
+        } else if (chess.in_draw()) {
+          io.emit("gameOver", { result: "draw" });
+        } else if (chess.in_stalemate()) {
+          io.emit("gameOver", { result: "stalemate" });
+        } else if (chess.in_threefold_repetition()) {
+          io.emit("gameOver", { result: "threefold repetition" });
+        } else if (chess.insufficient_material()) {
+          io.emit("gameOver", { result: "insufficient material" });
         }
 
-    
-});
-    uniquesocket.on("move",(move)=>{
-        try{
-            if(chess.turn() =='w' && uniquesocket.id!== players.white)return;// galt bnde ke move chane pe return
-            if(chess.turn() =='b' && uniquesocket.id!== players.black)return;
-
-            const result = chess.move(move);
-            if(result){
-                currentPlayer = chess.turn();   
-                io.emit("move",move);// ye sbko bhej dega
-                io.emit("boardState", chess.fen());// ye sbko current board state bhej dega 
-
-
-            }
-            else{
-                console.log("Invalid move attempted by player: " , move);
-                uniquesocket.emit("invalidMove", move);// ye sirf us specific bande ko btayega ki move invalid hai
-
-            }
-        }
-        catch(err){
-            console.error("Error processing move: ", err);
-            uniquesocket.emit("error", "An error occurred while processing your move.");
-        }
-    })
-
+      } else {
+        console.log("Invalid move attempted by:", uniquesocket.id, move);
+        uniquesocket.emit("invalidMove", move);
+      }
+    } catch (err) {
+      console.error("Error processing move:", err);
+      uniquesocket.emit("error", "An error occurred while processing your move.");
+    }
+  });
 });
 
-
-server.listen(3000,()=>{
-    // alert("Server is running on port 3000");
-    console.log("Server is running on port 3000");
+// Start the server
+server.listen(3000, () => {
+  console.log("Server is running on port 3000");
 });
-
-
-
-
-
-
-
-
-
-
