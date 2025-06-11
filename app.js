@@ -35,6 +35,7 @@ io.on("connection", (uniquesocket)=>{
     if(!players.white){
         players.white=uniquesocket.id;
         uniquesocket.emit("playerRole", "w");// ye sirf us specific bande ko btayega
+        //check
     }
     else if(!players.black){
         players.black=uniquesocket.id;
